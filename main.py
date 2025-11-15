@@ -1,11 +1,11 @@
-# main.py - Entry point for the bot application with health check endpoint
+# main.py - Entry point for the bot application with keep alive
 
 import logging
 import os
-import asyncio
-from aiohttp import web
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher.dispatcher import asyncio
+from aiohttp import web
 from config import BOT_TOKEN, ADMIN_IDS
 from handlers.main_handlers import register_main_handlers
 from handlers.sell_handlers import register_sell_handlers
@@ -13,6 +13,7 @@ from handlers.buy_handlers import register_buy_handlers
 from handlers.admin_handlers import register_admin_handlers
 from handlers.withdraw_handlers import register_withdraw_handlers
 from database import init_db
+from keep_alive import keep_alive
 import config
 
 logging.basicConfig(
@@ -55,7 +56,7 @@ async def on_startup(dp):
         try:
             await bot.send_message(
                 admin_id,
-                "🚀 **Bot Started Successfully!**\n\n"
+                "🚀 Bot Started Successfully!\n\n"
                 f"Bot: @{me.username}\n"
                 "Status: ✅ Online\n"
                 "Mode: Polling\n\n"
@@ -74,7 +75,7 @@ async def start_webhook_server():
     port = int(os.environ.get('PORT', 10000))
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, '0.0.0.0', port)  # pyright: ignore[reportUndefinedVariable]
     await site.start()
     logging.info(f"✅ Health check server started on port {port}")
     
@@ -94,7 +95,7 @@ async def on_shutdown(dp):
         try:
             await bot.send_message(
                 admin_id,
-                "⚠️ **Bot Shutting Down**\n\nStatus: Offline",
+                "⚠️ Bot Shutting Down\n\nStatus: Offline",
                 parse_mode="Markdown"
             )
         except:

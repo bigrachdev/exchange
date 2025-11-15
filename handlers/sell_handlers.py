@@ -1,5 +1,6 @@
 # handlers/sell_handlers.py - Enhanced sell flow with smooth navigation
 
+import logging
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
@@ -165,10 +166,13 @@ async def upload_code(message: types.Message, state: FSMContext):
     
     # Save photo or text to state
     if message.photo:
-        await state.update_data(photo_id=message.photo[-1].file_id, code_text=None)
+        await state.update_data(photo_id=message.photo[-1].file_id, code_text=None, has_photo=True)
         upload_type = "📸 Photo uploaded"
+    elif message.document:
+        await state.update_data(photo_id=message.document.file_id, code_text=None, has_photo=True, is_document=True)
+        upload_type = "📎 Document uploaded"
     else:
-        await state.update_data(code_text=message.text, photo_id=None)
+        await state.update_data(code_text=message.text, photo_id=None, has_photo=False)
         upload_type = "💬 Code received"
     
     # Get data for confirmation
@@ -260,22 +264,34 @@ Status: ⏳ Awaiting Verification
     # Send to admin channel with photo or text
     try:
         if data.get('photo_id'):
-            await bot.send_photo(
-                ADMIN_CHANNEL_ID,
-                data['photo_id'],
-                caption=admin_text,
-                reply_markup=admin_keyboard,
-                parse_mode="Markdown"
-            )
+            if data.get('is_document'):
+                await bot.send_document(
+                    ADMIN_CHANNEL_ID,
+                    data['photo_id'],
+                    caption=admin_text,
+                    reply_markup=admin_keyboard,
+                    parse_mode="Markdown"
+                )
+            else:
+                await bot.send_photo(
+                    ADMIN_CHANNEL_ID,
+                    data['photo_id'],
+                    caption=admin_text,
+                    reply_markup=admin_keyboard,
+                    parse_mode="Markdown"
+                )
         else:
             await bot.send_message(
                 ADMIN_CHANNEL_ID,
-                admin_text + f"\n\nCode:\n`{data['code_text']}`",
+                admin_text + f"\n\nCode:\n`{data.get('code_text', 'No code')}`",
                 reply_markup=admin_keyboard,
                 parse_mode="Markdown"
             )
+        logging.info(f"✅ Sell transaction {tx_id} sent to admin channel")
     except Exception as e:
-        print(f"Error sending to admin: {e}")
+        logging.error(f"❌ Error sending to admin channel: {e}")
+        # Still notify user even if admin notification fails
+        pass
     
     # Notify user
     success_text = f"""

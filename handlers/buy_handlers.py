@@ -1,5 +1,6 @@
 # handlers/buy_handlers.py - Enhanced buy flow with smooth navigation
 
+import logging
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
@@ -13,6 +14,7 @@ import asyncio
 class BuyStates(StatesGroup):
     select_card = State()
     enter_amount = State()
+    select_payment_method = State()
     payment = State()
     confirm = State()
 
@@ -21,6 +23,7 @@ def register_buy_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(select_card_page, lambda c: c.data.startswith('buy_page_'), state=BuyStates.select_card)
     dp.register_callback_query_handler(select_card, lambda c: c.data.startswith('buy_') and not c.data.startswith('buy_page_'), state=BuyStates.select_card)
     dp.register_message_handler(enter_amount, state=BuyStates.enter_amount)
+    dp.register_callback_query_handler(select_payment_method, lambda c: c.data.startswith('pay_'), state=BuyStates.select_payment_method)
     dp.register_message_handler(submit_payment, state=BuyStates.payment)
     dp.register_callback_query_handler(confirm_buy, lambda c: c.data == 'confirm_buy', state=BuyStates.confirm)
 
@@ -136,38 +139,76 @@ async def enter_amount(message: types.Message, state: FSMContext):
         # Save to state
         await state.update_data(denomination=amount, calculated=calculated)
         
-        # Payment address (replace with real one)
-        payment_address = "TQn4Y7kQgJLmNiMKCVaJ8gN8N5qH9KwXYg"  # Example USDT TRC20
-        
+        # Show payment method selection
         text = f"""
 💳 Buy Gift Card
 
-Step 3/4: Payment
+Step 3/5: Select Payment Method
 
 Card: {card_name}
 Denomination: ${amount:.0f}
 Total to Pay: {format_currency(calculated)}
 Rate: +{rate:.1f}%
 
-💰 Payment Method: USDT (TRC20)
-
-Send exactly {format_currency(calculated)} USDT to:
-
-`{payment_address}`
-
-⚠️ Important:
-• Send only USDT on TRC20 network
-• Send exact amount shown above
-• Transaction takes 3-10 confirmations
-
-After payment, send your transaction hash:
+💰 Choose your payment method:
 """
         
-        await message.answer(text, reply_markup=create_cancel_button(), parse_mode="Markdown")
-        await BuyStates.payment.set()
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        for key, wallet in PAYMENT_WALLETS.items():
+            keyboard.add(InlineKeyboardButton(
+                f"💎 {wallet['name']}",
+                callback_data=f"pay_{key}"
+            ))
+        keyboard.add(InlineKeyboardButton("❌ Cancel", callback_data="cancel_action"))
+        
+        await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+        await BuyStates.select_payment_method.set()
         
     except ValueError:
         await message.answer("❌ Invalid amount. Please enter numbers only (e.g., 100):", reply_markup=create_cancel_button())
+
+async def select_payment_method(query: types.CallbackQuery, state: FSMContext):
+    """Handle payment method selection"""
+    await query.answer()
+    
+    payment_method = query.data.replace('pay_', '')
+    wallet_info = PAYMENT_WALLETS.get(payment_method)
+    
+    if not wallet_info:
+        await query.answer("Invalid payment method", show_alert=True)
+        return
+    
+    # Save payment method to state
+    await state.update_data(payment_method=payment_method, wallet_info=wallet_info)
+    
+    data = await state.get_data()
+    
+    text = f"""
+💳 Buy Gift Card
+
+Step 4/5: Make Payment
+
+Card: {data['gift_card']}
+Denomination: ${data['denomination']:.0f}
+Total to Pay: {format_currency(data['calculated'])}
+
+💰 Payment Method: {wallet_info['name']}
+Network: {wallet_info['network']}
+
+Send exactly {format_currency(data['calculated'])} to:
+
+`{wallet_info['address']}`
+
+⚠️ Important:
+• Send only {wallet_info['name']} on {wallet_info['network']}
+• Send exact amount shown above
+• Transaction takes 3-10 confirmations
+
+After payment, send your transaction hash/ID:
+"""
+    
+    await query.message.edit_text(text, reply_markup=create_cancel_button(), parse_mode="Markdown")
+    await BuyStates.payment.set()
 
 async def submit_payment(message: types.Message, state: FSMContext):
     """Handle payment hash submission"""
@@ -188,13 +229,14 @@ async def submit_payment(message: types.Message, state: FSMContext):
     text = f"""
 ✅ Confirm Your Purchase
 
-Step 4/4: Review & Submit
+Step 5/5: Review & Submit
 
 Card: {data['gift_card']}
 Denomination: ${data['denomination']:.0f}
 Amount Paid: {format_currency(data['calculated'])}
 Rate: +{data['rate']:.1f}%
 
+Payment Method: {data['wallet_info']['name']}
 TX Hash: `{tx_hash[:20]}...`
 
 ⚠️ Please confirm:
@@ -253,6 +295,10 @@ Gift Card: {data['gift_card']}
 Denomination: ${data['denomination']:.0f}
 Amount Paid: {format_currency(data['calculated'])}
 Rate: +{data['rate']:.1f}%
+
+Payment Method: {data['wallet_info']['name']}
+Network: {data['wallet_info']['network']}
+Wallet: `{data['wallet_info']['address']}`
 
 Payment Hash:
 `{data['tx_hash']}`
