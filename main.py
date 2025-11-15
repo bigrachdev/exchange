@@ -1,6 +1,3 @@
-# main.py - Entry point for the bot application
-# This file sets up the bot, dispatcher, and webhook for hosting on Render.
-
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage  # type: ignore
@@ -25,6 +22,7 @@ register_sell_handlers(dp)
 register_buy_handlers(dp)
 register_withdraw_handlers(dp)
 register_admin_handlers(dp)
+
 
 async def on_startup(dp):
     init_db()  # Initialize database
