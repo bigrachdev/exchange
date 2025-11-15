@@ -48,3 +48,27 @@ GIFT_CARDS = [
 
 # Cards per page
 CARDS_PER_PAGE = 8
+
+# Crypto payment wallets
+PAYMENT_WALLETS = {
+    "BTC": {
+        "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",  # Replace with your BTC address
+        "network": "Bitcoin",
+        "name": "Bitcoin (BTC)"
+    },
+    "USDT_TRC20": {
+        "address": "TQn4Y7kQgJLmNiMKCVaJ8gN8N5qH9KwXYg",  # Replace with your USDT TRC20 address
+        "network": "TRC20 (Tron)",
+        "name": "USDT (TRC20)"
+    },
+    "USDT_ERC20": {
+        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",  # Replace with your USDT ERC20 address
+        "network": "ERC20 (Ethereum)",
+        "name": "USDT (ERC20)"
+    },
+    "ETH": {
+        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",  # Replace with your ETH address
+        "network": "Ethereum",
+        "name": "Ethereum (ETH)"
+    }
+}

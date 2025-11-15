@@ -4,7 +4,7 @@ from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import ADMIN_CHANNEL_ID
+from config import ADMIN_CHANNEL_ID, PAYMENT_WALLETS
 from database import get_random_rate, get_gift_card_logo, add_transaction, update_last_activity
 from utils import paginate_cards, format_rate_table, create_cancel_button, create_confirmation_keyboard, format_currency
 import uuid

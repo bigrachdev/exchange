@@ -2,6 +2,7 @@
 
 import logging
 import os
+import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -35,6 +36,7 @@ async def health_check(request):
     return web.Response(text="🤖 TOPO EXCHANGE Bot is running!", status=200)
 
 async def on_startup(dp):
+    """Execute on bot startup"""
     # Delete webhook to ensure polling works
     await bot.delete_webhook(drop_pending_updates=True)
     logging.info("✅ Webhook deleted, ready for polling")
@@ -48,7 +50,23 @@ async def on_startup(dp):
     config.BOT_USERNAME = me.username
     logging.info(f"✅ Bot started: @{me.username} (ID: {me.id})")
     
-    # Start health check web server for Render
+    # Notify admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                "🚀 **Bot Started Successfully!**\n\n"
+                f"Bot: @{me.username}\n"
+                "Status: ✅ Online\n"
+                "Mode: Polling\n\n"
+                "Use /admin to access admin panel",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+
+async def start_webhook_server():
+    """Start web server in background"""
     app = web.Application()
     app.router.add_get('/', health_check)
     app.router.add_get('/health', health_check)
@@ -60,20 +78,9 @@ async def on_startup(dp):
     await site.start()
     logging.info(f"✅ Health check server started on port {port}")
     
-    # Notify admins
-    for admin_id in ADMIN_IDS:
-        try:
-            await bot.send_message(
-                admin_id,
-                "🚀 Bot Started Successfully!\n\n"
-                f"Bot: @{me.username}\n"
-                "Status: ✅ Online\n"
-                "Mode: Polling\n\n"
-                "Use /admin to access admin panel",
-                parse_mode="Markdown"
-            )
-        except:
-            pass
+    # Keep the server running
+    while True:
+        await asyncio.sleep(3600)
 
 async def on_shutdown(dp):
     """Cleanup on shutdown"""
@@ -87,7 +94,7 @@ async def on_shutdown(dp):
         try:
             await bot.send_message(
                 admin_id,
-                "⚠️ Bot Shutting Down\n\nStatus: Offline",
+                "⚠️ **Bot Shutting Down**\n\nStatus: Offline",
                 parse_mode="Markdown"
             )
         except:
@@ -96,6 +103,11 @@ async def on_shutdown(dp):
     logging.info("✅ Bot shutdown complete")
 
 if __name__ == '__main__':
+    # Start health check server in background
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_webhook_server())
+    
+    # Start bot polling
     executor.start_polling(
         dp, 
         skip_updates=True, 
