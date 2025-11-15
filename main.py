@@ -32,10 +32,14 @@ async def health_check(request):
     return web.Response(text="Bot is running!", status=200)
 
 async def on_startup(dp):
+    # Delete webhook to ensure polling works
+    await bot.delete_webhook(drop_pending_updates=True)
+    logging.info("Webhook deleted, ready for polling")
+    
     init_db()  # Initialize database
     me = await bot.get_me()
     config.BOT_USERNAME = me.username
-    logging.info("Bot started with polling")
+    logging.info(f"Bot started: {me.username}")
     
     # Start health check web server
     app = web.Application()
