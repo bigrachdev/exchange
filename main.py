@@ -14,7 +14,10 @@ from handlers.withdraw_handlers import register_withdraw_handlers
 from database import init_db
 import config
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -29,19 +32,23 @@ register_admin_handlers(dp)
 
 async def health_check(request):
     """Health check endpoint for Render"""
-    return web.Response(text="Bot is running!", status=200)
+    return web.Response(text="🤖 TOPO EXCHANGE Bot is running!", status=200)
 
 async def on_startup(dp):
     # Delete webhook to ensure polling works
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Webhook deleted, ready for polling")
+    logging.info("✅ Webhook deleted, ready for polling")
     
-    init_db()  # Initialize database
+    # Initialize database
+    init_db()
+    logging.info("✅ Database initialized")
+    
+    # Get bot info
     me = await bot.get_me()
     config.BOT_USERNAME = me.username
-    logging.info(f"Bot started: {me.username}")
+    logging.info(f"✅ Bot started: @{me.username} (ID: {me.id})")
     
-    # Start health check web server
+    # Start health check web server for Render
     app = web.Application()
     app.router.add_get('/', health_check)
     app.router.add_get('/health', health_check)
@@ -51,7 +58,47 @@ async def on_startup(dp):
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logging.info(f"Health check server started on port {port}")
+    logging.info(f"✅ Health check server started on port {port}")
+    
+    # Notify admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                "🚀 Bot Started Successfully!\n\n"
+                f"Bot: @{me.username}\n"
+                "Status: ✅ Online\n"
+                "Mode: Polling\n\n"
+                "Use /admin to access admin panel",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+
+async def on_shutdown(dp):
+    """Cleanup on shutdown"""
+    logging.info("⚠️ Shutting down bot...")
+    
+    # Close bot session
+    await bot.close()
+    
+    # Notify admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                "⚠️ Bot Shutting Down\n\nStatus: Offline",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+    
+    logging.info("✅ Bot shutdown complete")
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    executor.start_polling(
+        dp, 
+        skip_updates=True, 
+        on_startup=on_startup,
+        on_shutdown=on_shutdown
+    )

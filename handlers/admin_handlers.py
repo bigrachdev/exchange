@@ -1,229 +1,469 @@
-# handlers/admin_handlers.py - Admin panel handlers
+# handlers/admin_handlers.py - Enhanced admin panel
 
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup  # type: ignore
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import ADMIN_IDS, ADMIN_CHANNEL_ID
-from database import get_all_users, get_user_transactions, update_rate, get_all_transactions, update_transaction_status, get_available_code, update_balance, reward_exists, add_reward, update_reward_status, get_reward, get_withdrawal, update_withdrawal_status, get_pending_withdrawals, get_transaction, get_referred_by, get_user, add_gift_card, get_all_gift_cards
-
-class AdminAddGiftCard(StatesGroup):
-    country = State()
-    name = State()
-    min_rate = State()
-    max_rate = State()
+from database import (get_all_users, get_all_transactions, update_transaction_status, 
+                     update_balance, reward_exists, add_reward, update_reward_status,
+                     get_reward, get_withdrawal, update_withdrawal_status, get_pending_withdrawals,
+                     get_transaction, get_referred_by, get_user, get_available_code)
+from utils import format_currency
 
 def register_admin_handlers(dp: Dispatcher):
-    dp.register_message_handler(admin_start, commands=['admin'], user_id=ADMIN_IDS)
+    # Admin command handlers
+    dp.register_message_handler(admin_panel, commands=['admin'], user_id=ADMIN_IDS, state='*')
+    dp.register_message_handler(stats_command, commands=['stats'], user_id=ADMIN_IDS)
+    dp.register_message_handler(broadcast_command, commands=['broadcast'], user_id=ADMIN_IDS)
+    
+    # Transaction handlers
     dp.register_callback_query_handler(admin_valid, lambda c: c.data.startswith('admin_valid_'))
     dp.register_callback_query_handler(admin_invalid, lambda c: c.data.startswith('admin_invalid_'))
-    dp.register_callback_query_handler(complete_tx_handler, lambda c: c.data.startswith('complete_tx_'))
+    dp.register_callback_query_handler(complete_buy_tx, lambda c: c.data.startswith('complete_tx_'))
+    
+    # Reward handlers
     dp.register_callback_query_handler(reward_paid_handler, lambda c: c.data.startswith('reward_paid_'))
+    
+    # Withdrawal handlers
     dp.register_callback_query_handler(wd_approve_handler, lambda c: c.data.startswith('wd_approve_'))
     dp.register_callback_query_handler(wd_deny_handler, lambda c: c.data.startswith('wd_deny_'))
-    dp.register_callback_query_handler(admin_users, lambda c: c.data == 'admin_users')
-    dp.register_callback_query_handler(admin_transactions, lambda c: c.data == 'admin_transactions')
-    dp.register_callback_query_handler(admin_withdrawals, lambda c: c.data == 'admin_withdrawals')
-    dp.register_callback_query_handler(admin_rates, lambda c: c.data == 'admin_rates')
-    dp.register_callback_query_handler(admin_inventory, lambda c: c.data == 'admin_inventory')
-    dp.register_callback_query_handler(admin_gift_cards, lambda c: c.data == 'admin_gift_cards')
-    dp.register_callback_query_handler(start_add_gift_card, lambda c: c.data == 'add_gift_card')
-    dp.register_message_handler(process_add_country, state=AdminAddGiftCard.country)
-    dp.register_message_handler(process_add_name, state=AdminAddGiftCard.name)
-    dp.register_message_handler(process_add_min_rate, state=AdminAddGiftCard.min_rate)
-    dp.register_message_handler(process_add_max_rate, state=AdminAddGiftCard.max_rate)
 
-async def admin_start(message: types.Message):
+async def admin_panel(message: types.Message, state: FSMContext):
+    """Show admin panel"""
     if message.from_user.id not in ADMIN_IDS:
         return
+    
+    if state:
+        await state.finish()
+    
+    # Get statistics
+    users = get_all_users()
+    pending_tx = get_all_transactions('pending')
+    pending_wd = get_pending_withdrawals()
+    
+    total_balance = sum(user[2] for user in users)
+    
+    text = f"""
+👑 ADMIN PANEL
+
+Statistics:
+• Total Users: {len(users)}
+• Total Balance: {format_currency(total_balance)}
+• Pending Transactions: {len(pending_tx)}
+• Pending Withdrawals: {len(pending_wd)}
+
+Commands:
+/stats - Detailed statistics
+/broadcast - Send message to all users
+
+Quick Actions:
+"""
+    
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        InlineKeyboardButton("Users", callback_data="admin_users"),
-        InlineKeyboardButton("Transactions", callback_data="admin_transactions"),
-        InlineKeyboardButton("Withdrawals", callback_data="admin_withdrawals"),
-        InlineKeyboardButton("Rates", callback_data="admin_rates"),
-        InlineKeyboardButton("Inventory", callback_data="admin_inventory"),
-        InlineKeyboardButton("Gift Cards", callback_data="admin_gift_cards")
+        InlineKeyboardButton(f"📊 Transactions ({len(pending_tx)})", callback_data="admin_transactions"),
+        InlineKeyboardButton(f"💸 Withdrawals ({len(pending_wd)})", callback_data="admin_withdrawals")
     )
-    await message.answer("Admin Panel", reply_markup=keyboard)
+    keyboard.add(
+        InlineKeyboardButton("👥 Users List", callback_data="admin_users"),
+        InlineKeyboardButton("📈 Analytics", callback_data="admin_analytics")
+    )
+    
+    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
-async def admin_users(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
+async def stats_command(message: types.Message):
+    """Show detailed statistics"""
+    if message.from_user.id not in ADMIN_IDS:
         return
-    await query.answer()
+    
     users = get_all_users()
-    text = "Users:\n" + "\n".join([f"{u[0]} @{u[1]}" for u in users]) if users else "No users."
-    await query.message.answer(text)
+    all_tx = get_all_transactions()
+    
+    completed_tx = [tx for tx in all_tx if tx[6] == 'completed']
+    pending_tx = [tx for tx in all_tx if tx[6] == 'pending']
+    failed_tx = [tx for tx in all_tx if tx[6] == 'failed']
+    
+    sell_tx = [tx for tx in completed_tx if tx[2] == 'sell']
+    buy_tx = [tx for tx in completed_tx if tx[2] == 'buy']
+    
+    total_balance = sum(user[2] for user in users)
+    total_sell_volume = sum(tx[5] for tx in sell_tx)
+    total_buy_volume = sum(tx[5] for tx in buy_tx)
+    
+    text = f"""
+📊 DETAILED STATISTICS
 
-async def admin_transactions(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
+Users:
+• Total: {len(users)}
+• Total Balance: {format_currency(total_balance)}
+• Avg Balance: {format_currency(total_balance / len(users) if users else 0)}
+
+Transactions:
+• Total: {len(all_tx)}
+• Completed: {len(completed_tx)}
+• Pending: {len(pending_tx)}
+• Failed: {len(failed_tx)}
+
+Volume:
+• Sell Volume: {format_currency(total_sell_volume)}
+• Buy Volume: {format_currency(total_buy_volume)}
+• Total Volume: {format_currency(total_sell_volume + total_buy_volume)}
+
+Breakdown:
+• Sell Transactions: {len(sell_tx)}
+• Buy Transactions: {len(buy_tx)}
+"""
+    
+    await message.answer(text, parse_mode="Markdown")
+
+async def broadcast_command(message: types.Message):
+    """Broadcast message to all users"""
+    if message.from_user.id not in ADMIN_IDS:
         return
-    await query.answer()
-    transactions = get_all_transactions()
-    text = "Transactions:\n" + "\n".join([str(tx) for tx in transactions]) if transactions else "No transactions."
-    await query.message.answer(text)
-
-async def admin_withdrawals(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
+    
+    # Extract message to broadcast
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: /broadcast <message>")
         return
-    await query.answer()
-    pending = get_pending_withdrawals()
-    text = "Pending Withdrawals:\n" + "\n".join([f"{wd[0]}: User {wd[1]} {wd[2]} ${wd[3]}" for wd in pending]) if pending else "No pending withdrawals."
-    await query.message.answer(text)
+    
+    broadcast_text = parts[1]
+    users = get_all_users()
+    
+    success = 0
+    failed = 0
+    
+    from main import bot
+    
+    for user in users:
+        try:
+            await bot.send_message(user[0], broadcast_text, parse_mode="Markdown")
+            success += 1
+        except:
+            failed += 1
+    
+    await message.answer(f"✅ Broadcast sent!\n\nSuccess: {success}\nFailed: {failed}")
 
-async def admin_rates(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
-        return
-    await query.answer()
-    # For now, simple text; can add states to edit
-    await query.message.answer("Rates management: Use /update_rate <gift_card> <country> <min> <max> or implement UI.")
-
-async def admin_inventory(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
-        return
-    await query.answer()
-    # Add inventory management; for now placeholder
-    await query.message.answer("Inventory management: Add codes via DB or implement UI.")
-
-async def admin_gift_cards(query: types.CallbackQuery):
-    if query.from_user.id not in ADMIN_IDS:
-        return
-    await query.answer()
-    gift_cards = get_all_gift_cards()
-    text = "Gift Cards:\n" + "\n".join([f"{country}: {name}" for country, name in gift_cards]) if gift_cards else "No gift cards."
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("Add New Gift Card", callback_data="add_gift_card"))
-    await query.message.answer(text, reply_markup=keyboard)
-
-async def start_add_gift_card(query: types.CallbackQuery, state: FSMContext):
-    if query.from_user.id not in ADMIN_IDS:
-        return
-    await query.answer()
-    await query.message.answer("Enter country:")
-    await AdminAddGiftCard.country.set()
-
-async def process_add_country(message: types.Message, state: FSMContext):
-    await state.update_data(country=message.text)
-    await message.answer("Enter gift card name:")
-    await AdminAddGiftCard.name.set()
-
-async def process_add_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Enter min rate (default 5.0):")
-    await AdminAddGiftCard.min_rate.set()
-
-async def process_add_min_rate(message: types.Message, state: FSMContext):
-    min_rate = float(message.text) if message.text else 5.0
-    await state.update_data(min_rate=min_rate)
-    await message.answer("Enter max rate (default 25.0):")
-    await AdminAddGiftCard.max_rate.set()
-
-async def process_add_max_rate(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    max_rate = float(message.text) if message.text else 25.0
-    add_gift_card(data['country'], data['name'])
-    update_rate(data['name'], data['country'], data['min_rate'], max_rate)
-    await message.answer(f"Added {data['name']} for {data['country']} with rates {data['min_rate']}-{max_rate}")
-    await state.finish()
+# Transaction approval handlers
 
 async def admin_valid(query: types.CallbackQuery):
+    """Approve sell transaction"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
-    tx_id = query.data.split('_')[2]
+    
+    await query.answer()
+    
+    tx_id = query.data.split('_')[-1]
     tx = get_transaction(tx_id)
-    if tx:
-        user_id = tx[1]
-        tx_type = tx[2]
-        if tx_type == 'sell':
-            calculated = tx[5]
-            update_transaction_status(tx_id, 'completed')
-            update_balance(user_id, calculated)
-            await bot.send_message(user_id, f"Your sale is approved! +${calculated:.2f} added to your balance. TX #{tx_id}")
-            await query.message.edit_text(query.message.text + "\n✅ Valid - Balance Updated")
-            await trigger_referral_reward(tx_id, query.message)
-        # For buy, use complete_tx
+    
+    if not tx:
+        await query.message.edit_text(query.message.text + "\n\n❌ Transaction not found")
+        return
+    
+    user_id = tx[1]
+    tx_type = tx[2]
+    calculated = tx[5]
+    
+    if tx_type == 'sell':
+        # Update transaction
+        update_transaction_status(tx_id, 'completed')
+        
+        # Add balance
+        update_balance(user_id, calculated, add=True)
+        
+        # Notify user
+        await bot.send_message(
+            user_id,
+            f"✅ Sale Approved!\n\n"
+            f"Transaction ID: `{tx_id}`\n"
+            f"Amount: {format_currency(calculated)}\n\n"
+            f"Your balance has been credited!",
+            parse_mode="Markdown"
+        )
+        
+        # Update admin message
+        await query.message.edit_text(
+            query.message.text + "\n\n✅ APPROVED - Balance updated",
+            parse_mode="Markdown"
+        )
+        
+        # Trigger referral reward
+        await trigger_referral_reward(tx_id, query.message)
 
 async def admin_invalid(query: types.CallbackQuery):
+    """Reject transaction"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
+    
+    await query.answer()
+    
     parts = query.data.split('_')
     reason_type = parts[2]
     tx_id = parts[3]
-    reason = "Used Code" if reason_type == 'used' else "Invalid Code" if reason_type == 'code' else "Other Issue"
+    
+    reason_map = {
+        'used': 'Code already used',
+        'code': 'Invalid or incorrect code',
+        'payment': 'Payment not received or invalid',
+        'other': 'Issue with submission'
+    }
+    
+    reason = reason_map.get(reason_type, 'Issue with submission')
+    
     tx = get_transaction(tx_id)
-    if tx:
-        update_transaction_status(tx_id, 'failed', reason)
-        await bot.send_message(tx[1], f"Sorry, code invalid. Reason: {reason}. TX #{tx_id}. Contact @SupportHandle")
-    await query.message.edit_text(query.message.text + f"\nHandled: Invalid - {reason}")
+    if not tx:
+        await query.message.edit_text(query.message.text + "\n\n❌ Transaction not found")
+        return
+    
+    # Update transaction
+    update_transaction_status(tx_id, 'failed', reason)
+    
+    # Notify user
+    await bot.send_message(
+        tx[1],
+        f"❌ Transaction Failed\n\n"
+        f"Transaction ID: `{tx_id}`\n"
+        f"Reason: {reason}\n\n"
+        f"Please contact support if you believe this is an error: @SupportHandle",
+        parse_mode="Markdown"
+    )
+    
+    # Update admin message
+    await query.message.edit_text(
+        query.message.text + f"\n\n❌ REJECTED - Reason: {reason}",
+        parse_mode="Markdown"
+    )
 
-async def complete_tx_handler(query: types.CallbackQuery):
+async def complete_buy_tx(query: types.CallbackQuery):
+    """Complete buy transaction and deliver code"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
-    tx_id = query.data.split('_')[2]
+    
+    await query.answer()
+    
+    tx_id = query.data.split('_')[-1]
     tx = get_transaction(tx_id)
-    if tx and tx[2] == 'buy':
-        code = get_available_code(tx[3], tx[4])
-        user_id = tx[1]
-        if code:
-            update_transaction_status(tx_id, 'completed')
-            await bot.send_message(user_id, f"Your purchase is confirmed! Gift card code: {code}")
-            await query.message.edit_text(query.message.text + "\n✅ Completed")
-            await trigger_referral_reward(tx_id, query.message)
-        else:
-            update_transaction_status(tx_id, 'failed', 'Out of stock')
-            await bot.send_message(user_id, "Out of stock. Refund initiated.")
-            await query.message.edit_text(query.message.text + "\n❌ Failed - Out of stock")
+    
+    if not tx or tx[2] != 'buy':
+        await query.message.edit_text(query.message.text + "\n\n❌ Invalid buy transaction")
+        return
+    
+    user_id = tx[1]
+    card_name = tx[3]
+    denomination = tx[4]
+    
+    # Get code from inventory
+    code = get_available_code(card_name, denomination)
+    
+    if code:
+        # Update transaction
+        update_transaction_status(tx_id, 'completed')
+        
+        # Send code to user
+        await bot.send_message(
+            user_id,
+            f"✅ Purchase Complete!\n\n"
+            f"Transaction ID: `{tx_id}`\n"
+            f"Card: {card_name}\n"
+            f"Denomination: ${denomination:.0f}\n\n"
+            f"Your Gift Card Code:\n`{code}`\n\n"
+            f"Enjoy your purchase! 🎉",
+            parse_mode="Markdown"
+        )
+        
+        # Update admin message
+        await query.message.edit_text(
+            query.message.text + "\n\n✅ DELIVERED - Code sent to user",
+            parse_mode="Markdown"
+        )
+        
+        # Trigger referral reward
+        await trigger_referral_reward(tx_id, query.message)
+    else:
+        # Out of stock
+        update_transaction_status(tx_id, 'failed', 'Out of stock')
+        
+        # Refund user (if balance was deducted)
+        await bot.send_message(
+            user_id,
+            f"❌ Purchase Failed\n\n"
+            f"Transaction ID: `{tx_id}`\n"
+            f"Reason: Out of stock\n\n"
+            f"Refund will be processed shortly. Please contact support: @SupportHandle",
+            parse_mode="Markdown"
+        )
+        
+        await query.message.edit_text(
+            query.message.text + "\n\n❌ OUT OF STOCK - Refund needed",
+            parse_mode="Markdown"
+        )
 
 async def trigger_referral_reward(tx_id, admin_message):
+    """Create referral reward if applicable"""
     from main import bot
+    
     tx = get_transaction(tx_id)
+    if not tx:
+        return
+    
     user_id = tx[1]
     referred_by = get_referred_by(user_id)
+    
     if referred_by and not reward_exists(referred_by, user_id):
-        reward_id = add_reward(referred_by, user_id, tx_id)
+        # Create reward
+        reward_id = add_reward(referred_by, user_id, tx_id, 5.0)
+        
+        # Get user info
         referrer = get_user(referred_by)
         referred = get_user(user_id)
-        text = f"New Referral Reward!\nReferrer: @{referrer[1] if referrer[1] else ''} (ID: {referred_by})\nReferred: @{referred[1] if referred[1] else ''} (ID: {user_id})\nAmount: $5.00\nTX: {tx_id}"
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("✅ Mark Paid", callback_data=f"reward_paid_{reward_id}"))
-        await bot.send_message(ADMIN_CHANNEL_ID, text, reply_markup=kb)
+        
+        # Notify admin
+        reward_text = f"""
+🎁 NEW REFERRAL REWARD
+
+Reward ID: {reward_id}
+Referrer: @{referrer[1] if referrer and referrer[1] else 'Unknown'} (ID: {referred_by})
+Referred: @{referred[1] if referred and referred[1] else 'Unknown'} (ID: {user_id})
+Amount: $5.00
+Related TX: `{tx_id}`
+
+Status: ⏳ Pending Payment
+"""
+        
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("✅ Mark as Paid", callback_data=f"reward_paid_{reward_id}"))
+        
+        try:
+            await bot.send_message(
+                ADMIN_CHANNEL_ID,
+                reward_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        except:
+            pass
 
 async def reward_paid_handler(query: types.CallbackQuery):
+    """Mark referral reward as paid"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
-    reward_id = int(query.data.split('_')[2])
+    
+    await query.answer()
+    
+    reward_id = int(query.data.split('_')[-1])
     reward = get_reward(reward_id)
-    if reward:
-        update_reward_status(reward_id, 'paid')
-        referrer_id = reward[1]
-        amount = reward[3]
-        update_balance(referrer_id, amount)
-        await bot.send_message(referrer_id, f"Referral reward paid! +${amount:.2f} added to your balance.")
-        await query.message.edit_text(query.message.text + "\n✅ Paid")
+    
+    if not reward:
+        await query.message.edit_text(query.message.text + "\n\n❌ Reward not found")
+        return
+    
+    referrer_id = reward[1]
+    amount = reward[3]
+    
+    # Update reward status
+    update_reward_status(reward_id, 'paid')
+    
+    # Add to referrer balance
+    update_balance(referrer_id, amount, add=True)
+    
+    # Notify referrer
+    await bot.send_message(
+        referrer_id,
+        f"🎉 Referral Reward Paid!\n\n"
+        f"You've earned {format_currency(amount)} for referring a friend!\n\n"
+        f"Your balance has been credited. Keep sharing and earning!",
+        parse_mode="Markdown"
+    )
+    
+    # Update admin message
+    await query.message.edit_text(
+        query.message.text + "\n\n✅ PAID - Balance updated",
+        parse_mode="Markdown"
+    )
 
 async def wd_approve_handler(query: types.CallbackQuery):
+    """Approve withdrawal"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
-    wd_id = query.data.split('_')[2]
+    
+    await query.answer()
+    
+    wd_id = query.data.split('_')[-1]
     wd = get_withdrawal(wd_id)
-    if wd:
-        update_withdrawal_status(wd_id, 'paid')
-        await bot.send_message(wd[1], f"Your withdrawal #{wd_id} has been approved and processed. Net amount: ${wd[5]:.2f}")
-        await query.message.edit_text(query.message.text + "\n✅ Approved")
+    
+    if not wd:
+        await query.message.edit_text(query.message.text + "\n\n❌ Withdrawal not found")
+        return
+    
+    user_id = wd[1]
+    net_amount = wd[5]
+    
+    # Update status
+    update_withdrawal_status(wd_id, 'paid')
+    
+    # Notify user
+    await bot.send_message(
+        user_id,
+        f"✅ Withdrawal Approved!\n\n"
+        f"Withdrawal ID: `{wd_id}`\n"
+        f"Amount: {format_currency(net_amount)}\n\n"
+        f"Your funds have been processed and should arrive within 24-48 hours.",
+        parse_mode="Markdown"
+    )
+    
+    # Update admin message
+    await query.message.edit_text(
+        query.message.text + "\n\n✅ APPROVED - Funds processed",
+        parse_mode="Markdown"
+    )
 
 async def wd_deny_handler(query: types.CallbackQuery):
+    """Deny withdrawal and refund"""
     from main import bot
+    
     if query.from_user.id not in ADMIN_IDS:
         return
-    wd_id = query.data.split('_')[2]
+    
+    await query.answer()
+    
+    wd_id = query.data.split('_')[-1]
     wd = get_withdrawal(wd_id)
-    if wd:
-        update_withdrawal_status(wd_id, 'denied', 'Denied by admin')
-        update_balance(wd[1], wd[3])  # Refund amount
-        await bot.send_message(wd[1], f"Your withdrawal #{wd_id} was denied. Amount ${wd[3]:.2f} refunded to your balance.")
-        await query.message.edit_text(query.message.text + "\n❌ Denied")
+    
+    if not wd:
+        await query.message.edit_text(query.message.text + "\n\n❌ Withdrawal not found")
+        return
+    
+    user_id = wd[1]
+    amount = wd[3]
+    
+    # Update status
+    update_withdrawal_status(wd_id, 'denied', 'Denied by admin')
+    
+    # Refund balance
+    update_balance(user_id, amount, add=True)
+    
+    # Notify user
+    await bot.send_message(
+        user_id,
+        f"❌ Withdrawal Denied\n\n"
+        f"Withdrawal ID: `{wd_id}`\n"
+        f"Amount: {format_currency(amount)}\n\n"
+        f"Your funds have been refunded to your balance. Please contact support for more information: @SupportHandle",
+        parse_mode="Markdown"
+    )
+    
+    # Update admin message
+    await query.message.edit_text(
+        query.message.text + "\n\n❌ DENIED - Amount refunded",
+        parse_mode="Markdown"
+    )
