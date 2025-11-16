@@ -1,46 +1,56 @@
-# main.py - Entry point for the bot application with keep alive
 
 import logging
-import os
-from aiogram import Bot, Dispatcher, executor, types
+import asyncio
+from aiogram import Bot, Dispatcher, executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher.dispatcher import asyncio
-from aiohttp import web
+
+# Import config
 from config import BOT_TOKEN, ADMIN_IDS
+import config
+
+# Import handlers
 from handlers.main_handlers import register_main_handlers
 from handlers.sell_handlers import register_sell_handlers
 from handlers.buy_handlers import register_buy_handlers
 from handlers.admin_handlers import register_admin_handlers
 from handlers.withdraw_handlers import register_withdraw_handlers
+
+# Import utilities
 from database import init_db
 from keep_alive import keep_alive
-import config
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Initialize bot and dispatcher
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# Register all handlers
+# Register all handlers - ORDER MATTERS!
 register_main_handlers(dp)
 register_sell_handlers(dp)
 register_buy_handlers(dp)
 register_withdraw_handlers(dp)
 register_admin_handlers(dp)
 
-async def health_check(request):
-    """Health check endpoint for Render"""
-    return web.Response(text="🤖 TOPO EXCHANGE Bot is running!", status=200)
-
-async def on_startup(dp):
+async def on_startup(dispatcher):
     """Execute on bot startup"""
-    # Delete webhook to ensure polling works
-    await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("✅ Webhook deleted, ready for polling")
+    # Start keep-alive server
+    keep_alive()
+    
+    # Delete webhook to clear any conflicts
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info("✅ Webhook deleted, ready for polling")
+    except Exception as e:
+        logging.error(f"❌ Error deleting webhook: {e}")
+    
+    # Wait for webhook to clear
+    await asyncio.sleep(2)
     
     # Initialize database
     init_db()
@@ -50,68 +60,47 @@ async def on_startup(dp):
     me = await bot.get_me()
     config.BOT_USERNAME = me.username
     logging.info(f"✅ Bot started: @{me.username} (ID: {me.id})")
+    logging.info("🔥 Polling mode active - Bot will stay alive!")
     
     # Notify admins
     for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(
                 admin_id,
-                "🚀 Bot Started Successfully!\n\n"
+                "🚀 **Bot Started Successfully!**\n\n"
                 f"Bot: @{me.username}\n"
                 "Status: ✅ Online\n"
-                "Mode: Polling\n\n"
+                "Mode: Polling with Keep-Alive\n\n"
                 "Use /admin to access admin panel",
                 parse_mode="Markdown"
             )
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"Failed to notify admin {admin_id}: {e}")
 
-async def start_webhook_server():
-    """Start web server in background"""
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
-    
-    port = int(os.environ.get('PORT', 10000))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)  # pyright: ignore[reportUndefinedVariable]
-    await site.start()
-    logging.info(f"✅ Health check server started on port {port}")
-    
-    # Keep the server running
-    while True:
-        await asyncio.sleep(3600)
-
-async def on_shutdown(dp):
-    """Cleanup on shutdown"""
+async def on_shutdown(dispatcher):
+    """Execute on bot shutdown"""
     logging.info("⚠️ Shutting down bot...")
-    
-    # Close bot session
-    await bot.close()
     
     # Notify admins
     for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(
                 admin_id,
-                "⚠️ Bot Shutting Down\n\nStatus: Offline",
+                "⚠️ **Bot Shutting Down**\n\nStatus: Offline",
                 parse_mode="Markdown"
             )
         except:
             pass
     
+    # Close bot session
+    await bot.close()
     logging.info("✅ Bot shutdown complete")
 
 if __name__ == '__main__':
-    # Start health check server in background
-    loop = asyncio.get_event_loop()
-    loop.create_task(start_webhook_server())
-    
-    # Start bot polling
+    logging.info("🚀 Starting TOPO EXCHANGE Bot...")
     executor.start_polling(
-        dp, 
-        skip_updates=True, 
+        dp,
+        skip_updates=True,
         on_startup=on_startup,
         on_shutdown=on_shutdown
     )
