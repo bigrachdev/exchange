@@ -1,4 +1,4 @@
-# handlers/admin_handlers.py - Enhanced admin panel
+# handlers/admin_handlers.py - Fixed admin panel with working buttons
 
 import logging
 from aiogram import Dispatcher, types
@@ -17,15 +17,15 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_message_handler(stats_command, commands=['stats'], user_id=ADMIN_IDS)
     dp.register_message_handler(broadcast_command, commands=['broadcast'], user_id=ADMIN_IDS)
     
-    # Transaction handlers
+    # Transaction handlers - FIXED: removed user_id filter
     dp.register_callback_query_handler(admin_valid, lambda c: c.data.startswith('admin_valid_'))
     dp.register_callback_query_handler(admin_invalid, lambda c: c.data.startswith('admin_invalid_'))
     dp.register_callback_query_handler(complete_buy_tx, lambda c: c.data.startswith('complete_tx_'))
     
-    # Reward handlers
+    # Reward handlers - FIXED
     dp.register_callback_query_handler(reward_paid_handler, lambda c: c.data.startswith('reward_paid_'))
     
-    # Withdrawal handlers
+    # Withdrawal handlers - FIXED
     dp.register_callback_query_handler(wd_approve_handler, lambda c: c.data.startswith('wd_approve_'))
     dp.register_callback_query_handler(wd_deny_handler, lambda c: c.data.startswith('wd_deny_'))
 
@@ -45,7 +45,7 @@ async def admin_panel(message: types.Message, state: FSMContext):
     total_balance = sum(user[2] for user in users)
     
     text = f"""
-👑 ADMIN PANEL
+🔱 ADMIN PANEL
 
 Statistics:
 • Total Users: {len(users)}
@@ -151,7 +151,9 @@ async def admin_valid(query: types.CallbackQuery):
     """Approve sell transaction"""
     from main import bot
     
+    # FIXED: Check admin status in function
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -197,7 +199,9 @@ async def admin_invalid(query: types.CallbackQuery):
     """Reject transaction"""
     from main import bot
     
+    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -243,7 +247,9 @@ async def complete_buy_tx(query: types.CallbackQuery):
     """Complete buy transaction and deliver code"""
     from main import bot
     
+    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -354,7 +360,9 @@ async def reward_paid_handler(query: types.CallbackQuery):
     """Mark referral reward as paid"""
     from main import bot
     
+    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -394,7 +402,9 @@ async def wd_approve_handler(query: types.CallbackQuery):
     """Approve withdrawal"""
     from main import bot
     
+    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -432,7 +442,9 @@ async def wd_deny_handler(query: types.CallbackQuery):
     """Deny withdrawal and refund"""
     from main import bot
     
+    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
