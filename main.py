@@ -1,3 +1,4 @@
+# main.py - FIXED VERSION
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, executor
@@ -29,7 +30,7 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# Register all handlers - ORDER MATTERS!
+# Register all handlers
 register_main_handlers(dp)
 register_sell_handlers(dp)
 register_buy_handlers(dp)
@@ -38,32 +39,27 @@ register_admin_handlers(dp)
 
 async def on_startup(dispatcher):
     """Execute on bot startup"""
-    # Start keep-alive server
+    logging.info("🚀 Bot startup initiated...")
+    
+    # Start keep-alive server FIRST
     keep_alive()
     
-    # CRITICAL: Force delete webhook and clear conflicts
+    # CRITICAL: Proper webhook cleanup for Render
     try:
-        logging.info("🔄 Clearing any existing webhooks/conflicts...")
+        logging.info("🔄 Clearing webhooks...")
+        
+        # Method 1: Delete webhook
         await bot.delete_webhook(drop_pending_updates=True)
-        logging.info("✅ Webhook deleted successfully")
-    except Exception as e:
-        logging.error(f"⚠️ Error deleting webhook: {e}")
-    
-    # Wait longer for conflicts to clear
-    logging.info("⏳ Waiting for Telegram to clear conflicts...")
-    await asyncio.sleep(5)
-    
-    # Try to close any existing sessions
-    try:
-        await bot.close()
         await asyncio.sleep(2)
-        # Reinitialize bot
-        global bot
-        bot = Bot(token=BOT_TOKEN)
-        dispatcher.bot = bot
-        logging.info("✅ Bot session reset")
+        
+        # Method 2: Set empty webhook to be sure
+        await bot.set_webhook("")
+        await asyncio.sleep(1)
+        
+        logging.info("✅ Webhooks cleared successfully")
+        
     except Exception as e:
-        logging.warning(f"⚠️ Session reset warning: {e}")
+        logging.warning(f"⚠️ Webhook cleanup warning: {e}")
     
     # Initialize database
     init_db()
@@ -73,8 +69,7 @@ async def on_startup(dispatcher):
     try:
         me = await bot.get_me()
         config.BOT_USERNAME = me.username
-        logging.info(f"✅ Bot started: @{me.username} (ID: {me.id})")
-        logging.info("🔥 Polling mode active - Bot will stay alive!")
+        logging.info(f"✅ Bot authenticated: @{me.username} (ID: {me.id})")
         
         # Notify admins
         for admin_id in ADMIN_IDS:
@@ -84,18 +79,27 @@ async def on_startup(dispatcher):
                     "🚀 **Bot Started Successfully!**\n\n"
                     f"Bot: @{me.username}\n"
                     "Status: ✅ Online\n"
-                    "Mode: Polling with Keep-Alive\n\n"
+                    "Mode: Polling\n\n"
                     "Use /admin to access admin panel",
                     parse_mode="Markdown"
                 )
             except Exception as e:
                 logging.error(f"Failed to notify admin {admin_id}: {e}")
+                
     except Exception as e:
-        logging.error(f"❌ Failed to get bot info: {e}")
+        logging.error(f"❌ Bot authentication failed: {e}")
+        raise
 
 async def on_shutdown(dispatcher):
     """Execute on bot shutdown"""
-    logging.info("⚠️ Shutting down bot...")
+    logging.info("⚠️ Bot shutting down...")
+    
+    # Clean shutdown
+    try:
+        await bot.delete_webhook()
+        logging.info("✅ Webhook cleaned up")
+    except:
+        pass
     
     # Notify admins
     for admin_id in ADMIN_IDS:
@@ -108,23 +112,22 @@ async def on_shutdown(dispatcher):
         except:
             pass
     
-    # Close bot session
     await bot.close()
     logging.info("✅ Bot shutdown complete")
 
 if __name__ == '__main__':
     logging.info("🚀 Starting TOPO EXCHANGE Bot...")
     
-    # Use try-except to handle conflicts gracefully
     try:
         executor.start_polling(
             dp,
             skip_updates=True,
             on_startup=on_startup,
             on_shutdown=on_shutdown,
-            timeout=30,  # Longer timeout
-            relax=0.5,   # Slower polling to avoid conflicts
+            timeout=60,      # Longer timeout
+            relax=1.0,       # Slower polling
+            fast=True        # Better for production
         )
     except Exception as e:
         logging.error(f"❌ Bot crashed: {e}")
-        logging.info("🔄 Attempting restart...")
+        # Don't attempt restart - let Render handle it

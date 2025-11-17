@@ -1,70 +1,34 @@
-# keep_alive.py - Flask-based keep alive server for Render
-
-import os
+# keep_alive.py - UPDATED
 from flask import Flask, jsonify
 from threading import Thread
 import logging
-from datetime import datetime
+import os
+import time
 
 app = Flask('')
 
-# Track last ping time
-last_ping = datetime.now()
-
 @app.route('/')
 def home():
-    global last_ping
-    last_ping = datetime.now()
-    return "🤖 TOPO EXCHANGE Bot is alive and running!"
+    return "🤖 TOPO EXCHANGE Bot - Active ✅"
 
 @app.route('/health')
 def health():
-    global last_ping
-    last_ping = datetime.now()
-    return "OK", 200
-
-@app.route('/status')
-def status():
-    global last_ping
-    last_ping = datetime.now()
-    uptime = (datetime.now() - start_time).total_seconds()
-    return jsonify({
-        "status": "online",
-        "bot": "TOPO EXCHANGE",
-        "message": "Bot is active and polling",
-        "uptime_seconds": int(uptime),
-        "last_ping": last_ping.strftime('%Y-%m-%d %H:%M:%S')
-    })
+    return jsonify({"status": "healthy", "service": "telegram_bot"})
 
 @app.route('/ping')
 def ping():
-    """Dedicated ping endpoint"""
-    global last_ping
-    last_ping = datetime.now()
-    return jsonify({
-        "status": "pong",
-        "timestamp": last_ping.strftime('%Y-%m-%d %H:%M:%S')
-    })
-
-# Track start time
-start_time = datetime.now()
+    return "pong"
 
 def run():
-    """Run Flask app with production server"""
+    """Run the Flask server"""
     port = int(os.environ.get('PORT', 10000))
+    logging.info(f"🌐 Starting keep-alive server on port {port}")
     
-    # Use waitress for production (more stable than Flask dev server)
-    try:
-        from waitress import serve
-        logging.info(f"✅ Starting production server on port {port}")
-        serve(app, host='0.0.0.0', port=port, threads=4)
-    except ImportError:
-        # Fallback to Flask dev server
-        logging.warning("⚠️ Waitress not installed, using Flask dev server")
-        app.run(host='0.0.0.0', port=port, threaded=True)
+    # Simple Flask server - Render handles the production serving
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 
 def keep_alive():
-    """Start Flask server in a separate thread"""
-    t = Thread(target=run, daemon=True)
-    t.start()
-    logging.info(f"✅ Keep-alive server started on port {os.environ.get('PORT', 10000)}")
+    """Start the keep-alive server"""
+    thread = Thread(target=run, daemon=True)
+    thread.start()
+    logging.info("✅ Keep-alive server started")
