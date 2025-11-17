@@ -1,4 +1,4 @@
-# handlers/admin_handlers.py - Fixed admin panel with working buttons
+# handlers/admin_handlers.py - Enhanced admin panel with missing handlers
 
 import logging
 from aiogram import Dispatcher, types
@@ -9,7 +9,7 @@ from database import (get_all_users, get_all_transactions, update_transaction_st
                      update_balance, reward_exists, add_reward, update_reward_status,
                      get_reward, get_withdrawal, update_withdrawal_status, get_pending_withdrawals,
                      get_transaction, get_referred_by, get_user, get_available_code)
-from utils import format_currency
+from utils import format_currency, create_back_button, truncate_text
 
 def register_admin_handlers(dp: Dispatcher):
     # Admin command handlers
@@ -17,17 +17,23 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_message_handler(stats_command, commands=['stats'], user_id=ADMIN_IDS)
     dp.register_message_handler(broadcast_command, commands=['broadcast'], user_id=ADMIN_IDS)
     
-    # Transaction handlers - FIXED: removed user_id filter
+    # Transaction handlers
     dp.register_callback_query_handler(admin_valid, lambda c: c.data.startswith('admin_valid_'))
     dp.register_callback_query_handler(admin_invalid, lambda c: c.data.startswith('admin_invalid_'))
     dp.register_callback_query_handler(complete_buy_tx, lambda c: c.data.startswith('complete_tx_'))
     
-    # Reward handlers - FIXED
+    # Reward handlers
     dp.register_callback_query_handler(reward_paid_handler, lambda c: c.data.startswith('reward_paid_'))
     
-    # Withdrawal handlers - FIXED
+    # Withdrawal handlers
     dp.register_callback_query_handler(wd_approve_handler, lambda c: c.data.startswith('wd_approve_'))
     dp.register_callback_query_handler(wd_deny_handler, lambda c: c.data.startswith('wd_deny_'))
+    
+    # Add missing admin panel button handlers
+    dp.register_callback_query_handler(admin_transactions, lambda c: c.data == 'admin_transactions')
+    dp.register_callback_query_handler(admin_withdrawals, lambda c: c.data == 'admin_withdrawals')
+    dp.register_callback_query_handler(admin_users, lambda c: c.data == 'admin_users')
+    dp.register_callback_query_handler(admin_analytics, lambda c: c.data == 'admin_analytics')
 
 async def admin_panel(message: types.Message, state: FSMContext):
     """Show admin panel"""
@@ -45,7 +51,7 @@ async def admin_panel(message: types.Message, state: FSMContext):
     total_balance = sum(user[2] for user in users)
     
     text = f"""
-🔱 ADMIN PANEL
+👑 ADMIN PANEL
 
 Statistics:
 • Total Users: {len(users)}
@@ -145,15 +151,94 @@ async def broadcast_command(message: types.Message):
     
     await message.answer(f"✅ Broadcast sent!\n\nSuccess: {success}\nFailed: {failed}")
 
+# NEW: Handler for Transactions button
+async def admin_transactions(query: types.CallbackQuery):
+    await query.answer()
+    
+    pending_tx = get_all_transactions('pending')
+    if not pending_tx:
+        text = "📊 Pending Transactions\n\nNo pending transactions currently."
+    else:
+        text = "📊 Pending Transactions\n\n"
+        for tx in pending_tx:
+            tx_id = tx[0]
+            user_id = tx[1]
+            tx_type = tx[2]
+            card = tx[3]
+            denom = tx[4]
+            calc = tx[5]
+            text += f"TX: `{truncate_text(tx_id)}`\nUser: {user_id}\nType: {tx_type.upper()}\nCard: {card}\nDenom: ${denom:.0f}\nCalc: {format_currency(calc)}\n\n"
+    
+    keyboard = create_back_button("admin_panel")  # Assuming you add 'admin_panel' callback to return
+    await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+# NEW: Handler for Withdrawals button
+async def admin_withdrawals(query: types.CallbackQuery):
+    await query.answer()
+    
+    pending_wd = get_pending_withdrawals()
+    if not pending_wd:
+        text = "💸 Pending Withdrawals\n\nNo pending withdrawals currently."
+    else:
+        text = "💸 Pending Withdrawals\n\n"
+        for wd in pending_wd:
+            wd_id = wd[0]
+            user_id = wd[1]
+            method = wd[2]
+            amount = wd[3]
+            net = wd[5]
+            text += f"WD: `{truncate_text(wd_id)}`\nUser: {user_id}\nMethod: {method}\nAmount: {format_currency(amount)}\nNet: {format_currency(net)}\n\n"
+    
+    keyboard = create_back_button("admin_panel")
+    await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+# NEW: Handler for Users List button
+async def admin_users(query: types.CallbackQuery):
+    await query.answer()
+    
+    users = get_all_users()
+    if not users:
+        text = "👥 Users List\n\nNo users registered."
+    else:
+        text = "👥 Users List (ID | Username | Balance)\n\n"
+        for user in users[:50]:  # Limit to 50 to avoid message too long
+            text += f"{user[0]} | @{user[1] or 'None'} | {format_currency(user[2])}\n"
+        if len(users) > 50:
+            text += "\n... (Showing first 50 users)"
+    
+    keyboard = create_back_button("admin_panel")
+    await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+# NEW: Handler for Analytics button
+async def admin_analytics(query: types.CallbackQuery):
+    await query.answer()
+    
+    # Reuse stats logic or add more analytics
+    users = get_all_users()
+    all_tx = get_all_transactions()
+    total_balance = sum(user[2] for user in users)
+    total_volume = sum(tx[5] for tx in all_tx if tx[6] == 'completed')
+    
+    text = f"""
+📈 Analytics Overview
+
+• Total Users: {len(users)}
+• Total System Balance: {format_currency(total_balance)}
+• Total Transaction Volume: {format_currency(total_volume)}
+
+More detailed stats available via /stats command.
+"""
+    
+    keyboard = create_back_button("admin_panel")
+    await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
 # Transaction approval handlers
 
 async def admin_valid(query: types.CallbackQuery):
     """Approve sell transaction"""
     from main import bot
     
-    # FIXED: Check admin status in function
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -199,57 +284,36 @@ async def admin_invalid(query: types.CallbackQuery):
     """Reject transaction"""
     from main import bot
     
-    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
     
-    parts = query.data.split('_')
-    reason_type = parts[2]
-    tx_id = parts[3]
-    
-    reason_map = {
-        'used': 'Code already used',
-        'code': 'Invalid or incorrect code',
-        'payment': 'Payment not received or invalid',
-        'other': 'Issue with submission'
-    }
-    
-    reason = reason_map.get(reason_type, 'Issue with submission')
-    
+    tx_id = query.data.split('_')[-1]
     tx = get_transaction(tx_id)
+    
     if not tx:
         await query.message.edit_text(query.message.text + "\n\n❌ Transaction not found")
         return
     
-    # Update transaction
-    update_transaction_status(tx_id, 'failed', reason)
+    update_transaction_status(tx_id, 'failed', 'Invalid card')
     
-    # Notify user
     await bot.send_message(
         tx[1],
-        f"❌ Transaction Failed\n\n"
-        f"Transaction ID: `{tx_id}`\n"
-        f"Reason: {reason}\n\n"
-        f"Please contact support if you believe this is an error: @SupportHandle",
+        f"❌ Sale Rejected\n\nTransaction ID: `{tx_id}`\nReason: Invalid card\n\nPlease try again with a valid card.",
         parse_mode="Markdown"
     )
     
-    # Update admin message
     await query.message.edit_text(
-        query.message.text + f"\n\n❌ REJECTED - Reason: {reason}",
+        query.message.text + "\n\n❌ REJECTED - User notified",
         parse_mode="Markdown"
     )
 
 async def complete_buy_tx(query: types.CallbackQuery):
-    """Complete buy transaction and deliver code"""
+    """Complete buy transaction by sending code"""
     from main import bot
     
-    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -360,9 +424,7 @@ async def reward_paid_handler(query: types.CallbackQuery):
     """Mark referral reward as paid"""
     from main import bot
     
-    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -402,9 +464,7 @@ async def wd_approve_handler(query: types.CallbackQuery):
     """Approve withdrawal"""
     from main import bot
     
-    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
@@ -442,9 +502,7 @@ async def wd_deny_handler(query: types.CallbackQuery):
     """Deny withdrawal and refund"""
     from main import bot
     
-    # FIXED: Check admin status
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("❌ Unauthorized", show_alert=True)
         return
     
     await query.answer()
