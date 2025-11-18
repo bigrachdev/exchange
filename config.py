@@ -1,21 +1,42 @@
-# config.py - Configuration file for bot settings
+# config.py - FIXED Configuration
 
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Bot credentials
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')
-WEBHOOK_PATH = os.getenv('WEBHOOK_PATH')
-ADMIN_IDS = [int(id) for id in os.getenv('ADMIN_IDS', '').split(',') if id]
-ADMIN_CHANNEL_ID = int(os.getenv('ADMIN_CHANNEL_ID'))
-DB_NAME = os.getenv('DB_NAME', 'bot.db')
-
 BOT_USERNAME = ""  # Will be set dynamically on startup
+
+# Admin settings - FIXED PARSING
+ADMIN_IDS_STR = os.getenv('ADMIN_IDS', '')
+ADMIN_IDS = [int(id.strip()) for id in ADMIN_IDS_STR.split(',') if id.strip()]
+
+# Channel ID - FIXED TYPE CONVERSION
+try:
+    ADMIN_CHANNEL_ID = int(os.getenv('ADMIN_CHANNEL_ID', '0'))
+except (ValueError, TypeError):
+    ADMIN_CHANNEL_ID = 0
+    print("⚠️ WARNING: ADMIN_CHANNEL_ID not set correctly!")
+
+# Database
+DB_NAME = os.getenv('DB_NAME', 'giftcard_bot.db')
 
 # State timeout (5 minutes)
 STATE_TIMEOUT = 300
+
+# Validate critical settings
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN not found in .env file!")
+
+if not ADMIN_IDS:
+    raise ValueError("❌ ADMIN_IDS not found in .env file!")
+
+if ADMIN_CHANNEL_ID == 0:
+    raise ValueError("❌ ADMIN_CHANNEL_ID not set correctly in .env file!")
+
+print(f"✅ Config loaded: {len(ADMIN_IDS)} admin(s), Channel ID: {ADMIN_CHANNEL_ID}")
 
 # Only 25 approved gift cards (All US-based)
 GIFT_CARDS = [
@@ -52,22 +73,22 @@ CARDS_PER_PAGE = 8
 # Crypto payment wallets
 PAYMENT_WALLETS = {
     "BTC": {
-        "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",  # Replace with your BTC address
+        "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
         "network": "Bitcoin",
         "name": "Bitcoin (BTC)"
     },
     "USDT_TRC20": {
-        "address": "TQn4Y7kQgJLmNiMKCVaJ8gN8N5qH9KwXYg",  # Replace with your USDT TRC20 address
+        "address": "TQn4Y7kQgJLmNiMKCVaJ8gN8N5qH9KwXYg",
         "network": "TRC20 (Tron)",
         "name": "USDT (TRC20)"
     },
     "USDT_ERC20": {
-        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",  # Replace with your USDT ERC20 address
+        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
         "network": "ERC20 (Ethereum)",
         "name": "USDT (ERC20)"
     },
     "ETH": {
-        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",  # Replace with your ETH address
+        "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
         "network": "Ethereum",
         "name": "Ethereum (ETH)"
     }
