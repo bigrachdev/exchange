@@ -8,4 +8,8 @@ services:
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        fromSecret: true
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: ADMIN_CHANNEL_ID
+        sync: false
