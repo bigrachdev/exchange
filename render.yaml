@@ -1,5 +1,6 @@
 services:
-  - type: web
+  # Background worker - stays running without needing HTTP traffic
+  - type: worker
     name: topo-exchange-bot
     env: python
     plan: free
@@ -8,4 +9,3 @@ services:
     envVars:
       - key: BOT_TOKEN
         fromSecret: true
-    healthCheckPath: /health

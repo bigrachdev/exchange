@@ -46,24 +46,16 @@ async def on_startup(dispatcher):
     # Start keep-alive server
     keep_alive()
     
-    # CRITICAL: Aggressive webhook cleanup
+    # CRITICAL: Webhook cleanup for polling mode
     try:
-        logger.info("🔄 Clearing any existing webhooks and conflicts...")
-        
-        # Method 1: Delete webhook with drop pending updates
+        logger.info("🔄 Clearing any existing webhooks...")
+
+        # Delete webhook with drop pending updates
         await bot.delete_webhook(drop_pending_updates=True)
-        await asyncio.sleep(2)
-        
-        # Method 2: Set empty webhook explicitly
-        await bot.set_webhook("")
-        await asyncio.sleep(2)
-        
-        # Method 3: Close and reopen session
-        await bot.close()
-        await asyncio.sleep(2)
-        
-        logger.info("✅ Webhooks cleared, session reset")
-        
+        await asyncio.sleep(1)
+
+        logger.info("✅ Webhooks cleared successfully")
+
     except Exception as e:
         logger.warning(f"⚠️ Webhook cleanup warning: {e}")
         # Continue anyway - polling usually works even if this fails
