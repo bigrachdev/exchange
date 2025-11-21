@@ -18,7 +18,6 @@ from handlers.withdraw_handlers import register_withdraw_handlers
 
 # Import utilities
 from database import init_db
-from keep_alive import keep_alive
 
 # Configure logging
 logging.basicConfig(
@@ -42,10 +41,7 @@ register_admin_handlers(dp)
 async def on_startup(dispatcher):
     """Execute on bot startup"""
     logger.info("🚀 Bot startup initiated...")
-    
-    # Start keep-alive server
-    keep_alive()
-    
+
     # CRITICAL: Webhook cleanup for polling mode
     try:
         logger.info("🔄 Clearing any existing webhooks...")
